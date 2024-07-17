@@ -2,74 +2,97 @@ package handler
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
+	"app/internal/common/errors"
+	"app/internal/common/metrics"
+	"app/internal/common/response"
 	"app/internal/post/domain"
 	"app/internal/post/service"
 
 	"github.com/go-chi/chi/v5"
+	"go.uber.org/zap"
 )
 
 type PostHandler struct {
 	postService service.PostService
+	logger      *zap.Logger
 }
 
-func NewPostHandler(postService service.PostService) *PostHandler {
-	return &PostHandler{postService: postService}
+func NewPostHandler(postService service.PostService, logger *zap.Logger) *PostHandler {
+	return &PostHandler{postService: postService, logger: logger}
 }
 
 func (h *PostHandler) GetPost(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() {
+		metrics.RequestDuration.WithLabelValues(r.Method, r.URL.Path).Observe(time.Since(start).Seconds())
+	}()
+
 	id, err := strconv.Atoi(chi.URLParam(r, "id"))
 	if err != nil {
-		http.Error(w, "Invalid post ID", http.StatusBadRequest)
+		h.handleError(w, r, errors.NewAppError("INVALID_ID", "Invalid post ID", err))
 		return
 	}
 
 	post, err := h.postService.GetPost(r.Context(), id)
 	if err != nil {
-		http.Error(w, "Post not found", http.StatusNotFound)
+		h.handleError(w, r, err)
 		return
 	}
 
-	json.NewEncoder(w).Encode(post)
+	h.respondWithJSON(w, r, http.StatusOK, "Post retrieved successfully", post)
 }
 
 func (h *PostHandler) GetAllPosts(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() {
+		metrics.RequestDuration.WithLabelValues(r.Method, r.URL.Path).Observe(time.Since(start).Seconds())
+	}()
+
 	posts, err := h.postService.GetAllPosts(r.Context())
 	if err != nil {
-		http.Error(w, "Error fetching posts", http.StatusInternalServerError)
+		h.handleError(w, r, err)
 		return
 	}
 
-	json.NewEncoder(w).Encode(posts)
+	h.respondWithJSON(w, r, http.StatusOK, "Posts retrieved successfully", posts)
 }
 
 func (h *PostHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() {
+		metrics.RequestDuration.WithLabelValues(r.Method, r.URL.Path).Observe(time.Since(start).Seconds())
+	}()
+
 	var post domain.Post
 	err := json.NewDecoder(r.Body).Decode(&post)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		h.handleError(w, r, errors.NewAppError("INVALID_INPUT", "Invalid input data", err))
 		return
 	}
 
 	err = h.postService.CreatePost(r.Context(), &post)
 	if err != nil {
-		http.Error(w, "Error creating post", http.StatusInternalServerError)
+		h.handleError(w, r, err)
 		return
 	}
 
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(post)
+	h.respondWithJSON(w, r, http.StatusCreated, "Post created successfully", post)
 }
 
 func (h *PostHandler) DeletePosts(w http.ResponseWriter, r *http.Request) {
-	// Get ids from query params
+	start := time.Now()
+	defer func() {
+		metrics.RequestDuration.WithLabelValues(r.Method, r.URL.Path).Observe(time.Since(start).Seconds())
+	}()
+
 	idStr := r.URL.Query().Get("ids")
 	if idStr == "" {
-		http.Error(w, "No IDs provided", http.StatusBadRequest)
+		h.handleError(w, r, errors.NewAppError("MISSING_IDS", "No IDs provided", nil))
 		return
 	}
 
@@ -79,7 +102,7 @@ func (h *PostHandler) DeletePosts(w http.ResponseWriter, r *http.Request) {
 	for _, idStr := range idStrings {
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Invalid post ID: %s", idStr), http.StatusBadRequest)
+			h.handleError(w, r, errors.NewAppError("INVALID_ID", "Invalid post ID", err))
 			return
 		}
 		ids = append(ids, id)
@@ -87,9 +110,44 @@ func (h *PostHandler) DeletePosts(w http.ResponseWriter, r *http.Request) {
 
 	err := h.postService.DeletePosts(r.Context(), ids)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error deleting posts: %v", err), http.StatusInternalServerError)
+		h.handleError(w, r, err)
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	h.respondWithJSON(w, r, http.StatusNoContent, "Posts deleted successfully", nil)
+}
+
+func (h *PostHandler) handleError(w http.ResponseWriter, r *http.Request, err error) {
+	var statusCode int
+	var message string
+
+	if appErr, ok := err.(*errors.AppError); ok {
+		switch appErr.Code {
+		case "INVALID_ID", "INVALID_INPUT", "MISSING_IDS":
+			statusCode = http.StatusBadRequest
+		case "NOT_FOUND":
+			statusCode = http.StatusNotFound
+		default:
+			statusCode = http.StatusInternalServerError
+		}
+		message = appErr.Message
+	} else {
+		statusCode = http.StatusInternalServerError
+		message = "An unexpected error occurred"
+	}
+
+	h.logger.Error("Request error",
+		zap.Error(err),
+		zap.String("method", r.Method),
+		zap.String("path", r.URL.Path),
+		zap.Int("status", statusCode),
+	)
+
+	metrics.RequestsTotal.WithLabelValues(r.Method, r.URL.Path, strconv.Itoa(statusCode)).Inc()
+	response.JSON(w, statusCode, response.StandardResponse{Status: "error", Message: message})
+}
+
+func (h *PostHandler) respondWithJSON(w http.ResponseWriter, r *http.Request, statusCode int, message string, data interface{}) {
+	metrics.RequestsTotal.WithLabelValues(r.Method, r.URL.Path, strconv.Itoa(statusCode)).Inc()
+	response.JSON(w, statusCode, response.StandardResponse{Status: "success", Message: message, Data: data})
 }

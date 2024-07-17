@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type Server struct {
@@ -34,6 +35,9 @@ func (s *Server) setupRoutes() {
 		r.Get("/{id}", s.postHandler.GetPost)
 		r.Delete("/delete", s.postHandler.DeletePosts)
 	})
+
+	// Add Prometheus metrics endpoint
+	s.router.Handle("/metrics", promhttp.Handler())
 }
 
 func (s *Server) Run(addr string) {
