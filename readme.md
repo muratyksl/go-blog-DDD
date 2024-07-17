@@ -59,9 +59,10 @@ These are set in the `docker-compose.yml` file for containerized deployment.
 ### Running with Docker Compose
 
 1. Clone the repository:
+
    ```
-   git clone https://github.com/yourusername/post-management-api.git
-   cd post-management-api
+   git clone https://github.com//muratyksl/go-blog-DDD.git
+   cd go-blog-DDD
    ```
 
 2. Start the application and database:
@@ -78,6 +79,7 @@ The API will be available at `http://localhost:8080`.
 2. Set the environment variables (DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME).
 
 3. Run the migrations:
+
    ```
    migrate -path ./migrations -database "postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=disable" up
    ```
