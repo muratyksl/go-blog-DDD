@@ -29,7 +29,7 @@ func NewPostHandler(postService service.PostService, logger *zap.Logger) *PostHa
 func (h *PostHandler) GetPost(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	defer func() {
-		metrics.RequestDuration.WithLabelValues(r.Method, r.URL.Path).Observe(time.Since(start).Seconds())
+		metrics.LogHTTPRequest(r.Method, r.URL.Path, "200", time.Since(start))
 	}()
 
 	id, err := strconv.Atoi(chi.URLParam(r, "id"))
@@ -50,7 +50,7 @@ func (h *PostHandler) GetPost(w http.ResponseWriter, r *http.Request) {
 func (h *PostHandler) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	defer func() {
-		metrics.RequestDuration.WithLabelValues(r.Method, r.URL.Path).Observe(time.Since(start).Seconds())
+		metrics.LogHTTPRequest(r.Method, r.URL.Path, "200", time.Since(start))
 	}()
 
 	posts, err := h.postService.GetAllPosts(r.Context())
@@ -65,7 +65,7 @@ func (h *PostHandler) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 func (h *PostHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	defer func() {
-		metrics.RequestDuration.WithLabelValues(r.Method, r.URL.Path).Observe(time.Since(start).Seconds())
+		metrics.LogHTTPRequest(r.Method, r.URL.Path, "201", time.Since(start))
 	}()
 
 	var post domain.Post
@@ -87,7 +87,7 @@ func (h *PostHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
 func (h *PostHandler) DeletePosts(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	defer func() {
-		metrics.RequestDuration.WithLabelValues(r.Method, r.URL.Path).Observe(time.Since(start).Seconds())
+		metrics.LogHTTPRequest(r.Method, r.URL.Path, "204", time.Since(start))
 	}()
 
 	idStr := r.URL.Query().Get("ids")
@@ -143,11 +143,11 @@ func (h *PostHandler) handleError(w http.ResponseWriter, r *http.Request, err er
 		zap.Int("status", statusCode),
 	)
 
-	metrics.RequestsTotal.WithLabelValues(r.Method, r.URL.Path, strconv.Itoa(statusCode)).Inc()
+	metrics.LogHTTPRequest(r.Method, r.URL.Path, strconv.Itoa(statusCode), time.Since(time.Now()))
 	response.JSON(w, statusCode, response.StandardResponse{Status: "error", Message: message})
 }
 
 func (h *PostHandler) respondWithJSON(w http.ResponseWriter, r *http.Request, statusCode int, message string, data interface{}) {
-	metrics.RequestsTotal.WithLabelValues(r.Method, r.URL.Path, strconv.Itoa(statusCode)).Inc()
+	metrics.LogHTTPRequest(r.Method, r.URL.Path, strconv.Itoa(statusCode), time.Since(time.Now()))
 	response.JSON(w, statusCode, response.StandardResponse{Status: "success", Message: message, Data: data})
 }
